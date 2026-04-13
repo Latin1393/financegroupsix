@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
 Rent vs. Buy Financial Simulation
-MBA-Level NPV / IRR / Opportunity-Cost / Comps Analysis
+NPV / IRR / Opportunity-Cost / Lifestyle Analysis
+
+The Ohio State University - Fisher College of Business
 
 Dependencies:  python3 -m pip install numpy numpy-financial matplotlib
 Run:           python3 rent_vs_buy.py
@@ -15,887 +17,559 @@ import matplotlib
 matplotlib.use("TkAgg")
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
+from matplotlib.ticker import FuncFormatter
 
 # ──────────────────────────────────────────────
-# Colour palette
+# Ohio State Buckeyes palette
 # ──────────────────────────────────────────────
-BG       = "#1e1e2e"
-SURFACE  = "#2a2a3c"
-CARD     = "#33334a"
-ACCENT   = "#7aa2f7"
-GREEN    = "#9ece6a"
-RED      = "#f7768e"
-ORANGE   = "#e0af68"
-TEXT     = "#c0caf5"
-SUBTEXT  = "#8b95b0"
-ENTRY_BG = "#3b3b54"
-CHART_BG   = "#2a2a3c"
-CHART_FACE = "#1e1e2e"
+SCARLET     = "#BB0000"
+SCARLET_DK  = "#9B0000"
+GRAY_OSU    = "#666666"
+GRAY_DARK   = "#333333"
+GRAY_MED    = "#4a4a4a"
+GRAY_LIGHT  = "#999999"
+WHITE       = "#FFFFFF"
+OFF_WHITE   = "#F7F7F2"
+CREAM       = "#EAEADE"
+CARD_BG     = "#FFFFFF"
+ENTRY_BG    = "#F2F2EC"
+BORDER      = "#D0D0C8"
+GREEN_OK    = "#2E7D32"
+RED_WARN    = "#C62828"
+CHART_FACE  = "#FAFAF5"
+CHART_BG    = "#F2F2EC"
 
 # ──────────────────────────────────────────────
 # Financial engine
 # ──────────────────────────────────────────────
 
-def run_simulation(params: dict) -> dict:
-    home_price       = params["home_price"]
-    sqft             = params["sqft"]
-    down_pct         = params["down_pct"] / 100
-    rate_annual      = params["mortgage_rate"] / 100
-    term_years       = params["mortgage_term"]
-    prop_tax_pct     = params["prop_tax"] / 100
-    insurance_annual = params["insurance"]
-    maint_pct        = params["maintenance"] / 100
-    appr_annual      = params["appreciation"] / 100
-    closing_buy_pct  = params["closing_buy"] / 100
-    closing_sell_pct = params["closing_sell"] / 100
-    marginal_tax     = params["marginal_tax"] / 100
-    hold_years       = params["hold_years"]
-    monthly_rent     = params["monthly_rent"]
-    rent_growth      = params["rent_growth"] / 100
-    renter_ins       = params["renter_ins"]
-    invest_return    = params["invest_return"] / 100
-    discount_rate    = params["discount_rate"] / 100
+def run_simulation(p):
+    hp=p["home_price"]; sq=p["sqft"]
+    dp=p["down_pct"]/100; ra=p["mortgage_rate"]/100; ty=p["mortgage_term"]
+    pt=p["prop_tax"]/100; ins=p["insurance"]; mt=p["maintenance"]/100
+    ap=p["appreciation"]/100; cb=p["closing_buy"]/100; cs=p["closing_sell"]/100
+    tx=p["marginal_tax"]/100; hy=p["hold_years"]
+    mr=p["monthly_rent"]; rg=p["rent_growth"]/100; ri=p["renter_ins"]
+    ir=p["invest_return"]/100; dr=p["discount_rate"]/100
+    sal=p["annual_salary"]; stx=p["state_tax"]/100
+    md=p["monthly_debt"]; ms=p["monthly_savings"]; ef=p["emergency_fund"]
 
-    months = int(hold_years * 12)
-    r_mo   = rate_annual / 12
-    n_pmt  = int(term_years * 12)
+    months=int(hy*12); rmo=ra/12; npmt=int(ty*12)
+    down=hp*dp; loan=hp-down; closebuy=hp*cb
 
-    down_payment = home_price * down_pct
-    loan_amount  = home_price - down_payment
-    closing_buy  = home_price * closing_buy_pct
+    if loan>0 and rmo>0: mpmt=npf.pmt(rmo,npmt,-loan)
+    elif loan>0: mpmt=loan/npmt
+    else: mpmt=0.0
 
-    if loan_amount > 0 and r_mo > 0:
-        monthly_pmt = npf.pmt(r_mo, n_pmt, -loan_amount)
-    elif loan_amount > 0:
-        monthly_pmt = loan_amount / n_pmt
-    else:
-        monthly_pmt = 0.0
+    bcf=[0.0]*(months+1); bcf[0]=-(down+closebuy)
+    bal=loan; ti=tpr=tins=tmt=0.0
+    equity_ts=[0.0]; bmo_out=[]; hv_ts=[hp]
 
-    buy_cf    = [0.0] * (months + 1)
-    buy_cf[0] = -(down_payment + closing_buy)
+    for m in range(1,months+1):
+        ip=bal*rmo if bal>0 else 0; pp=mpmt-ip if bal>0 else 0
+        if pp>bal: pp=bal
+        bal-=pp
+        ptm=(hp*(1+ap)**((m-1)/12))*pt/12; im=ins/12
+        mm=(hp*(1+ap)**((m-1)/12))*mt/12; tsh=ip*tx
+        out=mpmt+ptm+im+mm-tsh; bcf[m]=-out
+        ti+=ip; tpr+=ptm; tins+=im; tmt+=mm
+        chv=hp*(1+ap)**(m/12); hv_ts.append(chv)
+        equity_ts.append(chv-bal); bmo_out.append(out)
 
-    balance         = loan_amount
-    total_interest  = 0.0
-    total_principal = 0.0
-    total_prop_tax  = 0.0
-    total_insurance = 0.0
-    total_maint     = 0.0
+    fhv=hp*(1+ap)**hy; rembal=bal; closesell=fhv*cs
+    nsp=fhv-rembal-closesell; bcf[months]+=nsp
+    tbo=abs(sum(x for x in bcf if x<0))
 
-    buyer_equity_ts   = [0.0]
-    buyer_monthly_out = []
-    home_value_ts     = [home_price]
+    rcf=[0.0]*(months+1); trp=0.0; rmo_out=[]
+    for m in range(1,months+1):
+        yr=(m-1)//12; cr=mr*(1+rg)**yr; rim=ri/12
+        out=cr+rim; rcf[m]=-out; trp+=cr; rmo_out.append(out)
+    tro=abs(sum(x for x in rcf if x<0))
 
-    for m in range(1, months + 1):
-        interest_pmt  = balance * r_mo if balance > 0 else 0
-        principal_pmt = monthly_pmt - interest_pmt if balance > 0 else 0
-        if principal_pmt > balance:
-            principal_pmt = balance
-        balance -= principal_pmt
+    irmo=ir/12; port=down+closebuy; port_ts=[port]
+    for m in range(1,months+1):
+        bo=abs(bcf[m]) if bcf[m]<0 else 0; ro=abs(rcf[m])
+        d=bo-ro; port=port*(1+irmo)+max(d,0)
+        if d<0: port+=d
+        port_ts.append(max(port,0))
+    rterm=max(port,0)
 
-        prop_tax_mo = (home_price * (1 + appr_annual) ** ((m - 1) / 12)) * prop_tax_pct / 12
-        ins_mo      = insurance_annual / 12
-        maint_mo    = (home_price * (1 + appr_annual) ** ((m - 1) / 12)) * maint_pct / 12
-        tax_shield  = interest_pmt * marginal_tax
+    dmo=dr/12
+    bnpv=npf.npv(dmo,bcf); rnpv=npf.npv(dmo,rcf)
+    rnpvi=rnpv+rterm/(1+dmo)**months
 
-        outflow = monthly_pmt + prop_tax_mo + ins_mo + maint_mo - tax_shield
-        buy_cf[m] = -outflow
-
-        total_interest  += interest_pmt
-        total_principal += principal_pmt
-        total_prop_tax  += prop_tax_mo
-        total_insurance += ins_mo
-        total_maint     += maint_mo
-
-        curr_home_val = home_price * (1 + appr_annual) ** (m / 12)
-        home_value_ts.append(curr_home_val)
-        buyer_equity_ts.append(curr_home_val - balance)
-        buyer_monthly_out.append(outflow)
-
-    future_home_value = home_price * (1 + appr_annual) ** hold_years
-    remaining_balance = balance
-    closing_sell      = future_home_value * closing_sell_pct
-    net_sale_proceeds = future_home_value - remaining_balance - closing_sell
-    buy_cf[months]   += net_sale_proceeds
-    total_buy_outflows = abs(sum(cf for cf in buy_cf if cf < 0))
-
-    # ── RENT ────────────────────────────────
-    rent_cf         = [0.0] * (months + 1)
-    total_rent_paid = 0.0
-    renter_monthly_out = []
-
-    for m in range(1, months + 1):
-        year_idx      = (m - 1) // 12
-        current_rent  = monthly_rent * (1 + rent_growth) ** year_idx
-        renter_ins_mo = renter_ins / 12
-        outflow       = current_rent + renter_ins_mo
-        rent_cf[m]    = -outflow
-        total_rent_paid += current_rent
-        renter_monthly_out.append(outflow)
-
-    total_rent_outflows = abs(sum(cf for cf in rent_cf if cf < 0))
-
-    # ── Opportunity cost ────────────────────
-    invest_r_mo  = invest_return / 12
-    portfolio    = down_payment + closing_buy
-    portfolio_ts = [portfolio]
-
-    for m in range(1, months + 1):
-        buy_outflow  = abs(buy_cf[m]) if buy_cf[m] < 0 else 0
-        rent_outflow = abs(rent_cf[m])
-        diff = buy_outflow - rent_outflow
-        portfolio = portfolio * (1 + invest_r_mo) + max(diff, 0)
-        if diff < 0:
-            portfolio = portfolio + diff
-        portfolio_ts.append(max(portfolio, 0))
-
-    renter_terminal_wealth = max(portfolio, 0)
-
-    # ── NPV ─────────────────────────────────
-    d_mo     = discount_rate / 12
-    buy_npv  = npf.npv(d_mo, buy_cf)
-    rent_npv = npf.npv(d_mo, rent_cf)
-    rent_npv_with_invest = rent_npv + renter_terminal_wealth / (1 + d_mo) ** months
-
-    # ── IRR ─────────────────────────────────
     try:
-        buy_irr_mo  = npf.irr(buy_cf)
-        buy_irr_ann = (1 + buy_irr_mo) ** 12 - 1 if buy_irr_mo and not np.isnan(buy_irr_mo) else None
-    except Exception:
-        buy_irr_ann = None
-
-    rent_invest_cf     = [-(down_payment + closing_buy)] + [0.0] * months
-    rent_invest_cf[-1] = renter_terminal_wealth
+        bi=npf.irr(bcf); birr=(1+bi)**12-1 if bi and not np.isnan(bi) else None
+    except: birr=None
+    ricf=[-(down+closebuy)]+[0.0]*months; ricf[-1]=rterm
     try:
-        rent_irr_mo  = npf.irr(rent_invest_cf)
-        rent_irr_ann = (1 + rent_irr_mo) ** 12 - 1 if rent_irr_mo and not np.isnan(rent_irr_mo) else None
-    except Exception:
-        rent_irr_ann = None
+        rii=npf.irr(ricf); rirr=(1+rii)**12-1 if rii and not np.isnan(rii) else None
+    except: rirr=None
 
-    buyer_net_wealth  = net_sale_proceeds
-    renter_net_wealth = renter_terminal_wealth
+    bnet=nsp; rnet=rterm
+    byavg=[]; ryavg=[]
+    for y in range(int(hy)):
+        s,e=y*12,min(y*12+12,months)
+        byavg.append(np.mean(bmo_out[s:e])); ryavg.append(np.mean(rmo_out[s:e]))
 
-    price_per_sqft    = home_price / sqft if sqft > 0 else 0
-    rent_per_sqft     = monthly_rent / sqft if sqft > 0 else 0
-    future_price_sqft = future_home_value / sqft if sqft > 0 else 0
+    # Lifestyle
+    ftx=sal*tx; stax=sal*stx; mnet=(sal-ftx-stax)/12
+    abm=np.mean(bmo_out[:12]) if bmo_out else 0
+    arm=np.mean(rmo_out[:12]) if rmo_out else 0
+    gmo=sal/12
+    bhp=(abm/mnet*100) if mnet>0 else 0; rhp=(arm/mnet*100) if mnet>0 else 0
+    bdti=((abm+md)/gmo*100) if gmo>0 else 0; rdti=((arm+md)/gmo*100) if gmo>0 else 0
+    bleft=mnet-abm-md-ms; rleft=mnet-arm-md-ms
+    bef=ef/abm if abm>0 else 0; ref=ef/arm if arm>0 else 0
 
-    buy_yearly_avg  = []
-    rent_yearly_avg = []
-    for y in range(int(hold_years)):
-        s, e = y * 12, min(y * 12 + 12, months)
-        buy_yearly_avg.append(np.mean(buyer_monthly_out[s:e]))
-        rent_yearly_avg.append(np.mean(renter_monthly_out[s:e]))
+    fint=(hp-down)*rmo; fprin=mpmt-fint if mpmt>fint else 0
+    bpie={"Principal":fprin,"Interest":fint,"Prop Tax":hp*pt/12,
+          "Insurance":ins/12,"Maint":hp*mt/12}
+    rpie={"Rent":mr,"Renter Ins":ri/12}
 
     return {
-        "months": months, "hold_years": hold_years, "sqft": sqft,
-        "down_payment": down_payment, "loan_amount": loan_amount,
-        "monthly_pmt": monthly_pmt, "total_interest": total_interest,
-        "total_prop_tax": total_prop_tax, "total_insurance": total_insurance,
-        "total_maint": total_maint, "future_home_value": future_home_value,
-        "remaining_balance": remaining_balance, "closing_sell_cost": closing_sell,
-        "net_sale_proceeds": net_sale_proceeds, "total_buy_outflows": total_buy_outflows,
-        "buy_npv": buy_npv, "buy_irr": buy_irr_ann,
-        "buyer_net_wealth": buyer_net_wealth,
-        "total_rent_paid": total_rent_paid, "total_rent_outflows": total_rent_outflows,
-        "renter_terminal": renter_terminal_wealth,
-        "rent_npv": rent_npv, "rent_npv_with_invest": rent_npv_with_invest,
-        "rent_irr": rent_irr_ann, "renter_net_wealth": renter_net_wealth,
-        "advantage": "BUY" if buyer_net_wealth > renter_net_wealth else "RENT",
-        "advantage_amount": abs(buyer_net_wealth - renter_net_wealth),
-        "price_per_sqft": price_per_sqft, "rent_per_sqft": rent_per_sqft,
-        "future_price_sqft": future_price_sqft,
-        "buyer_equity_ts": buyer_equity_ts, "portfolio_ts": portfolio_ts,
-        "home_value_ts": home_value_ts,
-        "buy_yearly_avg": buy_yearly_avg, "rent_yearly_avg": rent_yearly_avg,
+        "months":months,"hold_years":hy,"sqft":sq,
+        "down_payment":down,"loan_amount":loan,"monthly_pmt":mpmt,
+        "total_interest":ti,"total_prop_tax":tpr,"total_insurance":tins,
+        "total_maint":tmt,"future_home_value":fhv,
+        "remaining_balance":rembal,"closing_sell_cost":closesell,
+        "net_sale_proceeds":nsp,"total_buy_outflows":tbo,
+        "buy_npv":bnpv,"buy_irr":birr,"buyer_net_wealth":bnet,
+        "total_rent_paid":trp,"total_rent_outflows":tro,"renter_terminal":rterm,
+        "rent_npv":rnpv,"rent_npv_with_invest":rnpvi,
+        "rent_irr":rirr,"renter_net_wealth":rnet,
+        "advantage":"BUY" if bnet>rnet else "RENT",
+        "advantage_amount":abs(bnet-rnet),
+        "price_per_sqft":hp/sq if sq>0 else 0,
+        "future_price_sqft":fhv/sq if sq>0 else 0,
+        "equity_ts":equity_ts,"portfolio_ts":port_ts,"hv_ts":hv_ts,
+        "buy_yearly":byavg,"rent_yearly":ryavg,
+        "monthly_net":mnet,"avg_buy_mo":abm,"avg_rent_mo":arm,
+        "buy_housing_pct":bhp,"rent_housing_pct":rhp,
+        "buy_dti":bdti,"rent_dti":rdti,
+        "buy_left":bleft,"rent_left":rleft,
+        "buy_ef":bef,"rent_ef":ref,
+        "buy_pie":bpie,"rent_pie":rpie,
     }
 
+def fmt_usd(v):  return "N/A" if v is None else f"${v:,.0f}"
+def fmt_usd2(v): return "N/A" if v is None else f"${v:,.2f}"
+def fmt_pct(v):  return "N/A" if v is None else f"{v*100:,.2f}%"
+def usd_k(x,_):  return f"${x:,.0f}K" if x>=1 else f"${x*1000:,.0f}"
+def usd_fmt(x,_): return f"${x:,.0f}"
 
-def fmt_usd(v):
-    return "N/A" if v is None else f"${v:,.0f}"
-
-def fmt_usd2(v):
-    return "N/A" if v is None else f"${v:,.2f}"
-
-def fmt_pct(v):
-    return "N/A" if v is None else f"{v * 100:,.2f}%"
-
-
-# ──────────────────────────────────────────────
-# Comps analysis
-# ──────────────────────────────────────────────
-
-def analyse_comps(comps: list, subject_price: float, subject_sqft: float,
-                  subject_rent: float) -> dict:
-    """
-    comps: list of dicts with keys: name, price, sqft, rent
-    Any comp with at least name + one numeric field is kept.
-    """
-    if not comps:
-        return None
-
-    # Separate pools: comps with price+sqft (for $/sqft) and comps with rent (for cap rate)
-    price_comps = [c for c in comps if c["price"] > 0 and c["sqft"] > 0]
-    rent_comps  = [c for c in comps if c["rent"] > 0 and c["sqft"] > 0]
-    cap_comps   = [c for c in comps if c["rent"] > 0 and c["price"] > 0]
-
-    if not price_comps and not rent_comps:
-        return None
-
-    prices_sqft = [c["price"] / c["sqft"] for c in price_comps] if price_comps else []
-    rents_sqft  = [c["rent"] / c["sqft"] for c in rent_comps] if rent_comps else []
-    cap_rates   = [(c["rent"] * 12) / c["price"] for c in cap_comps] if cap_comps else []
-    prices      = [c["price"] for c in price_comps] if price_comps else []
-
-    subj_price_sqft = subject_price / subject_sqft if subject_sqft > 0 else 0
-    subj_rent_sqft  = subject_rent / subject_sqft if subject_sqft > 0 else 0
-    subj_cap = (subject_rent * 12) / subject_price if subject_price > 0 and subject_rent > 0 else 0
-
-    avg_price_sqft = np.mean(prices_sqft) if prices_sqft else 0
-    avg_rent_sqft  = np.mean(rents_sqft) if rents_sqft else 0
-    avg_cap        = np.mean(cap_rates) if cap_rates else 0
-    med_price      = np.median(prices) if prices else 0
-
-    implied_value = avg_price_sqft * subject_sqft if subject_sqft > 0 and avg_price_sqft > 0 else 0
-    premium_discount = ((subject_price / implied_value) - 1) * 100 if implied_value > 0 else 0
-
-    return {
-        "price_comps":      price_comps,
-        "rent_comps":       rent_comps,
-        "cap_comps":        cap_comps,
-        "count_price":      len(price_comps),
-        "count_rent":       len(rent_comps),
-        "avg_price_sqft":   avg_price_sqft,
-        "avg_rent_sqft":    avg_rent_sqft,
-        "avg_cap_rate":     avg_cap,
-        "median_price":     med_price,
-        "subj_price_sqft":  subj_price_sqft,
-        "subj_rent_sqft":   subj_rent_sqft,
-        "subj_cap_rate":    subj_cap,
-        "implied_value":    implied_value,
-        "premium_discount": premium_discount,
-        "prices_sqft":      prices_sqft,
-        "rents_sqft":       rents_sqft,
-    }
-
-
-# ──────────────────────────────────────────────
-# GUI
-# ──────────────────────────────────────────────
 
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Rent vs. Buy  |  NPV / IRR / Comps Simulation")
-        self.configure(bg=BG)
-        self.minsize(1280, 900)
-        self.geometry("1360x940")
+        self.title("Rent vs. Buy  |  Fisher College of Business")
+        self.configure(bg=OFF_WHITE)
+        self.minsize(1400,850)
+        self.geometry("1500x900")
 
-        self.title_font  = tkfont.Font(family="Helvetica Neue", size=20, weight="bold")
-        self.head_font   = tkfont.Font(family="Helvetica Neue", size=13, weight="bold")
-        self.label_font  = tkfont.Font(family="Helvetica Neue", size=11)
-        self.entry_font  = tkfont.Font(family="Menlo", size=11)
-        self.result_font = tkfont.Font(family="Menlo", size=11)
-        self.small_font  = tkfont.Font(family="Helvetica Neue", size=10)
+        self.head_font   = tkfont.Font(family="Georgia",size=14,weight="bold")
+        self.label_font  = tkfont.Font(family="Helvetica Neue",size=12)
+        self.entry_font  = tkfont.Font(family="Menlo",size=12)
+        self.result_font = tkfont.Font(family="Helvetica Neue",size=13)
+        self.small_font  = tkfont.Font(family="Helvetica Neue",size=11)
+        self.mono_font   = tkfont.Font(family="Menlo",size=13)
 
-        self.comp_rows = []
         self._build_ui()
 
     def _build_ui(self):
-        hdr = tk.Frame(self, bg=BG)
-        hdr.pack(fill="x", padx=24, pady=(18, 6))
-        tk.Label(hdr, text="Rent vs. Buy Simulator", font=self.title_font,
-                 bg=BG, fg=ACCENT).pack(side="left")
-        tk.Label(hdr, text="NPV  |  IRR  |  Opportunity Cost  |  Comps",
-                 font=self.small_font, bg=BG, fg=SUBTEXT).pack(side="left", padx=14, pady=4)
+        # ── Scarlet header ──────────────────
+        hdr=tk.Frame(self,bg=SCARLET,height=64); hdr.pack(fill="x"); hdr.pack_propagate(False)
+        fl=tk.Frame(hdr,bg=SCARLET); fl.pack(side="left",padx=24,pady=8)
+        tk.Label(fl,text="THE OHIO STATE UNIVERSITY",
+                 font=tkfont.Font(family="Georgia",size=9,weight="bold"),
+                 bg=SCARLET,fg=WHITE).pack(anchor="w")
+        tk.Label(fl,text="Fisher College of Business",
+                 font=tkfont.Font(family="Georgia",size=15,weight="bold"),
+                 bg=SCARLET,fg=WHITE).pack(anchor="w")
+        fr=tk.Frame(hdr,bg=SCARLET); fr.pack(side="right",padx=24,pady=8)
+        tk.Label(fr,text="Rent vs. Buy Simulator",
+                 font=tkfont.Font(family="Georgia",size=17),
+                 bg=SCARLET,fg=WHITE).pack(anchor="e")
+        tk.Label(fr,text="NPV  |  IRR  |  Opportunity Cost  |  Lifestyle",
+                 font=self.small_font,bg=SCARLET,fg="#FFCCCC").pack(anchor="e")
+        tk.Frame(self,bg=GRAY_OSU,height=3).pack(fill="x")
 
-        body = tk.Frame(self, bg=BG)
-        body.pack(fill="both", expand=True, padx=24, pady=10)
+        # ── Top row: inputs scroll horizontally across ──
+        top=tk.Frame(self,bg=OFF_WHITE)
+        top.pack(fill="x",padx=16,pady=(10,4))
 
-        # ── Left: scrollable inputs ─────────
-        left_outer = tk.Frame(body, bg=BG, width=480)
-        left_outer.pack(side="left", fill="y", padx=(0, 12))
-        left_outer.pack_propagate(False)
+        tc=tk.Canvas(top,bg=OFF_WHITE,highlightthickness=0,height=280)
+        ts=tk.Scrollbar(top,orient="horizontal",command=tc.xview)
+        self.input_frame=tk.Frame(tc,bg=OFF_WHITE)
+        self.input_frame.bind("<Configure>",lambda e:tc.configure(scrollregion=tc.bbox("all")))
+        tc.create_window((0,0),window=self.input_frame,anchor="nw")
+        tc.configure(xscrollcommand=ts.set)
+        tc.pack(fill="x",expand=True); ts.pack(fill="x")
 
-        left_canvas = tk.Canvas(left_outer, bg=BG, highlightthickness=0, width=460)
-        left_scroll = tk.Scrollbar(left_outer, orient="vertical", command=left_canvas.yview)
-        self.left_frame = tk.Frame(left_canvas, bg=BG)
-        self.left_frame.bind("<Configure>",
-                             lambda e: left_canvas.configure(scrollregion=left_canvas.bbox("all")))
-        left_canvas.create_window((0, 0), window=self.left_frame, anchor="nw")
-        left_canvas.configure(yscrollcommand=left_scroll.set)
-        left_canvas.pack(side="left", fill="both", expand=True)
-        left_scroll.pack(side="right", fill="y")
+        self.entries={}
 
-        def _scroll(event):
-            left_canvas.yview_scroll(-1 * (event.delta // 120 if event.delta else
-                                           int(event.num == 4) - int(event.num == 5)), "units")
-        left_canvas.bind_all("<MouseWheel>", _scroll)
-        left_canvas.bind_all("<Button-4>", _scroll)
-        left_canvas.bind_all("<Button-5>", _scroll)
+        self._card(self.input_frame,"Subject Property",[
+            ("home_price","Home Price ($)","400000"),
+            ("sqft","Square Footage","1800"),
+            ("location","Location",""),
+        ],text_fields=["location"])
 
-        # ── Right: tabbed results ───────────
-        right = tk.Frame(body, bg=BG)
-        right.pack(side="left", fill="both", expand=True)
-
-        style = ttk.Style()
-        style.theme_use("default")
-        style.configure("Dark.TNotebook", background=BG, borderwidth=0)
-        style.configure("Dark.TNotebook.Tab", background=CARD, foreground=TEXT,
-                        padding=[14, 7], font=("Helvetica Neue", 11, "bold"))
-        style.map("Dark.TNotebook.Tab",
-                  background=[("selected", ACCENT)],
-                  foreground=[("selected", "#1e1e2e")])
-
-        self.notebook = ttk.Notebook(right, style="Dark.TNotebook")
-        self.notebook.pack(fill="both", expand=True)
-
-        # Tab 1: Summary
-        tab_summary = tk.Frame(self.notebook, bg=BG)
-        self.notebook.add(tab_summary, text="  Summary  ")
-        self.result_text = tk.Text(tab_summary, bg=SURFACE, fg=TEXT,
-                                   font=self.result_font, relief="flat",
-                                   padx=18, pady=18, wrap="word", state="disabled",
-                                   insertbackground=TEXT, selectbackground=ACCENT,
-                                   highlightthickness=0)
-        self.result_text.pack(fill="both", expand=True)
-        for tag, kw in [("header", {"font": self.head_font, "foreground": ACCENT}),
-                        ("green",  {"foreground": GREEN}),
-                        ("red",    {"foreground": RED}),
-                        ("orange", {"foreground": ORANGE}),
-                        ("sub",    {"foreground": SUBTEXT, "font": self.small_font}),
-                        ("bold",   {"font": tkfont.Font(family="Menlo", size=12, weight="bold")})]:
-            self.result_text.tag_configure(tag, **kw)
-
-        # Tab 2: Charts
-        tab_charts = tk.Frame(self.notebook, bg=CHART_FACE)
-        self.notebook.add(tab_charts, text="  Charts  ")
-        self.chart_frame = tab_charts
-
-        # Tab 3: Comps
-        tab_comps = tk.Frame(self.notebook, bg=CHART_FACE)
-        self.notebook.add(tab_comps, text="  Comps  ")
-        self.comps_chart_frame = tab_comps
-
-        # ── Build input sections ────────────
-        self.entries = {}
-
-        self._section(self.left_frame, "Subject Property", [
-            ("home_price",     "Home Price ($)",              "400000"),
-            ("sqft",           "Square Footage",              "1800"),
-            ("location",       "Location / Neighborhood",     ""),
-        ], text_fields=["location"])
-
-        self._section(self.left_frame, "Purchase Assumptions", [
-            ("down_pct",       "Down Payment (%)",            "20"),
-            ("mortgage_rate",  "Mortgage Rate (%)",           "6.75"),
-            ("mortgage_term",  "Loan Term (years)",           "30"),
-            ("prop_tax",       "Property Tax (%/yr)",         "1.25"),
-            ("insurance",      "Homeowner Ins. ($/yr)",       "1800"),
-            ("maintenance",    "Maintenance (%/yr)",          "1.0"),
-            ("appreciation",   "Home Appreciation (%/yr)",    "3.0"),
-            ("closing_buy",    "Closing Costs - Buy (%)",     "3.0"),
-            ("closing_sell",   "Closing Costs - Sell (%)",    "6.0"),
+        self._card(self.input_frame,"Lifestyle & Budget",[
+            ("annual_salary","Gross Salary ($/yr)","85000"),
+            ("state_tax","State Tax (%)","4.0"),
+            ("monthly_debt","Other Debt ($/mo)","400"),
+            ("monthly_savings","Savings Goal ($/mo)","500"),
+            ("emergency_fund","Emergency Fund ($)","15000"),
         ])
 
-        self._section(self.left_frame, "Renting Assumptions", [
-            ("monthly_rent",  "Monthly Rent ($)",             "2000"),
-            ("rent_growth",   "Annual Rent Increase (%)",     "3.0"),
-            ("renter_ins",    "Renter Insurance ($/yr)",      "250"),
+        self._card(self.input_frame,"Purchase",[
+            ("down_pct","Down Payment (%)","20"),
+            ("mortgage_rate","Mortgage Rate (%)","6.75"),
+            ("mortgage_term","Loan Term (yrs)","30"),
+            ("prop_tax","Property Tax (%/yr)","1.25"),
+            ("insurance","Home Ins. ($/yr)","1800"),
+            ("maintenance","Maintenance (%/yr)","1.0"),
+            ("appreciation","Appreciation (%/yr)","3.0"),
+            ("closing_buy","Close Cost Buy (%)","3.0"),
+            ("closing_sell","Close Cost Sell (%)","6.0"),
         ])
 
-        self._section(self.left_frame, "Analysis Parameters", [
-            ("hold_years",    "Holding Period (years)",       "7"),
-            ("invest_return", "Alt. Investment Return (%/yr)","8.0"),
-            ("discount_rate", "Discount Rate (%/yr)",         "7.0"),
-            ("marginal_tax",  "Marginal Tax Rate (%)",        "24"),
+        self._card(self.input_frame,"Renting",[
+            ("monthly_rent","Monthly Rent ($)","2000"),
+            ("rent_growth","Rent Increase (%/yr)","3.0"),
+            ("renter_ins","Renter Ins. ($/yr)","250"),
         ])
 
-        self._build_comps_section(self.left_frame)
+        self._card(self.input_frame,"Analysis",[
+            ("hold_years","Hold Period (yrs)","7"),
+            ("invest_return","Alt. Return (%/yr)","8.0"),
+            ("discount_rate","Discount Rate (%/yr)","7.0"),
+            ("marginal_tax","Marginal Tax (%)","24"),
+        ])
 
-        tk.Button(self.left_frame, text="Run Simulation", font=self.head_font,
-                  bg=ACCENT, fg="#1e1e2e", activebackground="#5b85e0",
-                  activeforeground="#1e1e2e", bd=0, padx=20, pady=10,
-                  cursor="hand2", command=self._run).pack(fill="x", pady=(14, 14))
+        # Run button in a card
+        btn_frame=tk.Frame(self.input_frame,bg=CARD_BG,highlightthickness=1,
+                           highlightbackground=BORDER,width=160,height=270)
+        btn_frame.pack(side="left",padx=6,anchor="n")
+        btn_frame.pack_propagate(False)
+        tk.Button(btn_frame,text="RUN\nSIMULATION",font=self.head_font,
+                  bg=SCARLET,fg=WHITE,activebackground=SCARLET_DK,
+                  activeforeground=WHITE,bd=0,padx=16,pady=30,
+                  cursor="hand2",command=self._run,wraplength=120,
+                  justify="center").pack(expand=True,fill="both",padx=10,pady=10)
+
+        # ── Bottom: results area ────────────
+        bottom=tk.Frame(self,bg=OFF_WHITE)
+        bottom.pack(fill="both",expand=True,padx=16,pady=(4,12))
+
+        style=ttk.Style(); style.theme_use("default")
+        style.configure("OSU.TNotebook",background=OFF_WHITE,borderwidth=0)
+        style.configure("OSU.TNotebook.Tab",background=CREAM,foreground=GRAY_DARK,
+                        padding=[18,8],font=("Georgia",12,"bold"))
+        style.map("OSU.TNotebook.Tab",background=[("selected",SCARLET)],
+                  foreground=[("selected",WHITE)])
+
+        self.notebook=ttk.Notebook(bottom,style="OSU.TNotebook")
+        self.notebook.pack(fill="both",expand=True)
+
+        # Tab 1: Dashboard (charts + verdict)
+        self.tab_dash=tk.Frame(self.notebook,bg=OFF_WHITE)
+        self.notebook.add(self.tab_dash,text="  Dashboard  ")
+
+        # Tab 2: Detail
+        tab_detail=tk.Frame(self.notebook,bg=OFF_WHITE)
+        self.notebook.add(tab_detail,text="  Detail  ")
+        self.result_text=tk.Text(tab_detail,bg=WHITE,fg=GRAY_DARK,
+                                  font=self.result_font,relief="flat",
+                                  padx=24,pady=18,wrap="word",state="disabled",
+                                  insertbackground=GRAY_DARK,selectbackground=SCARLET,
+                                  selectforeground=WHITE,highlightthickness=1,
+                                  highlightbackground=BORDER)
+        self.result_text.pack(fill="both",expand=True)
+        for tag,kw in [
+            ("header",{"font":self.head_font,"foreground":SCARLET}),
+            ("green",{"foreground":GREEN_OK}),("red",{"foreground":RED_WARN}),
+            ("orange",{"foreground":"#E65100"}),
+            ("sub",{"foreground":GRAY_LIGHT,"font":self.small_font}),
+            ("explain",{"foreground":GRAY_MED,"font":self.result_font}),
+            ("bold",{"font":tkfont.Font(family="Menlo",size=14,weight="bold"),"foreground":GRAY_DARK}),
+            ("warn",{"foreground":RED_WARN,"font":self.result_font}),
+            ("ok",{"foreground":GREEN_OK,"font":self.result_font}),
+            ("kv",{"font":self.mono_font,"foreground":GRAY_DARK}),
+        ]:
+            self.result_text.tag_configure(tag,**kw)
 
         self._show_placeholder()
 
-    def _section(self, parent, title, fields, text_fields=None):
-        text_fields = text_fields or []
-        frame = tk.Frame(parent, bg=CARD, bd=0, highlightthickness=1,
-                         highlightbackground="#44446a")
-        frame.pack(fill="x", pady=(0, 10))
-        tk.Label(frame, text=title, font=self.head_font,
-                 bg=CARD, fg=ACCENT, anchor="w").pack(fill="x", padx=12, pady=(10, 4))
-        for key, label, default in fields:
-            row = tk.Frame(frame, bg=CARD)
-            row.pack(fill="x", padx=12, pady=2)
-            tk.Label(row, text=label, font=self.label_font,
-                     bg=CARD, fg=TEXT, width=26, anchor="w").pack(side="left")
-            w = 18 if key in text_fields else 12
-            e = tk.Entry(row, font=self.entry_font, bg=ENTRY_BG, fg=TEXT,
-                         insertbackground=TEXT, relief="flat", width=w,
-                         highlightthickness=1, highlightcolor=ACCENT,
-                         highlightbackground="#555578")
-            e.insert(0, default)
-            e.pack(side="left", padx=(4, 0))
-            self.entries[key] = e
-        tk.Frame(frame, bg=CARD, height=8).pack()
+    def _card(self,parent,title,fields,text_fields=None):
+        text_fields=text_fields or []
+        frame=tk.Frame(parent,bg=CARD_BG,highlightthickness=1,
+                       highlightbackground=BORDER)
+        frame.pack(side="left",padx=6,anchor="n")
 
-    # ── Comps table ─────────────────────────
-    def _build_comps_section(self, parent):
-        frame = tk.Frame(parent, bg=CARD, bd=0, highlightthickness=1,
-                         highlightbackground="#44446a")
-        frame.pack(fill="x", pady=(0, 10))
+        # Scarlet top bar
+        tk.Frame(frame,bg=SCARLET,height=4).pack(fill="x")
+        tk.Label(frame,text=title,font=tkfont.Font(family="Georgia",size=12,weight="bold"),
+                 bg=CARD_BG,fg=SCARLET,anchor="w",padx=10,pady=6).pack(anchor="w")
 
-        top_row = tk.Frame(frame, bg=CARD)
-        top_row.pack(fill="x", padx=12, pady=(10, 2))
-        tk.Label(top_row, text="Comparable Properties", font=self.head_font,
-                 bg=CARD, fg=ACCENT, anchor="w").pack(side="left")
-
-        # Instructions
-        tk.Label(frame, text="Fill in what you have. Price+SqFt enables $/sqft chart. "
-                 "Rent+Price enables cap rate chart.",
-                 font=self.small_font, bg=CARD, fg=SUBTEXT, anchor="w",
-                 wraplength=440, justify="left").pack(fill="x", padx=12, pady=(0, 6))
-
-        # Column headers
-        hdr = tk.Frame(frame, bg=CARD)
-        hdr.pack(fill="x", padx=12, pady=(2, 2))
-        for text, w in [("Name / Address", 16), ("Price ($)", 12),
-                        ("Sq Ft", 8), ("Rent ($/mo)", 12)]:
-            tk.Label(hdr, text=text, font=self.small_font, bg=CARD,
-                     fg=ORANGE, width=w, anchor="w").pack(side="left", padx=2)
-
-        self.comp_container = tk.Frame(frame, bg=CARD)
-        self.comp_container.pack(fill="x", padx=12)
-
-        for _ in range(5):
-            self._add_comp_row()
-
-        btn_row = tk.Frame(frame, bg=CARD)
-        btn_row.pack(fill="x", padx=12, pady=(6, 10))
-        tk.Button(btn_row, text="+ Add Comp", font=self.small_font,
-                  bg=ENTRY_BG, fg=TEXT, bd=0, padx=10, pady=3,
-                  activebackground="#555578", activeforeground=TEXT,
-                  cursor="hand2", command=self._add_comp_row).pack(side="left")
-        tk.Button(btn_row, text="Clear All", font=self.small_font,
-                  bg=ENTRY_BG, fg=SUBTEXT, bd=0, padx=10, pady=3,
-                  activebackground="#555578", activeforeground=TEXT,
-                  cursor="hand2", command=self._clear_comps).pack(side="left", padx=6)
-
-    def _add_comp_row(self):
-        row = tk.Frame(self.comp_container, bg=CARD)
-        row.pack(fill="x", pady=1)
-        entries = []
-        for w in [16, 12, 8, 12]:
-            e = tk.Entry(row, font=self.entry_font, bg=ENTRY_BG, fg=TEXT,
-                         insertbackground=TEXT, relief="flat", width=w,
-                         highlightthickness=1, highlightcolor=ACCENT,
-                         highlightbackground="#555578")
-            e.pack(side="left", padx=2)
-            entries.append(e)
-        self.comp_rows.append(tuple(entries))
-
-    def _clear_comps(self):
-        for widget in self.comp_container.winfo_children():
-            widget.destroy()
-        self.comp_rows.clear()
-        for _ in range(5):
-            self._add_comp_row()
-
-    def _get_comps(self):
-        """Parse comps — include any row that has a name and at least one number."""
-        comps = []
-        for name_e, price_e, sqft_e, rent_e in self.comp_rows:
-            name = name_e.get().strip()
-            if not name:
-                continue
-            try:
-                price = float(price_e.get().replace(",", "").replace("$", "")) if price_e.get().strip() else 0
-            except ValueError:
-                price = 0
-            try:
-                sqft = float(sqft_e.get().replace(",", "")) if sqft_e.get().strip() else 0
-            except ValueError:
-                sqft = 0
-            try:
-                rent = float(rent_e.get().replace(",", "").replace("$", "")) if rent_e.get().strip() else 0
-            except ValueError:
-                rent = 0
-
-            # Keep the comp if it has at least one useful number
-            if price > 0 or sqft > 0 or rent > 0:
-                comps.append({"name": name, "price": price, "sqft": sqft, "rent": rent})
-        return comps
+        for key,label,default in fields:
+            row=tk.Frame(frame,bg=CARD_BG)
+            row.pack(fill="x",padx=10,pady=2)
+            tk.Label(row,text=label,font=self.small_font,
+                     bg=CARD_BG,fg=GRAY_DARK,anchor="w").pack(anchor="w")
+            w=16 if key in text_fields else 11
+            e=tk.Entry(row,font=self.entry_font,bg=ENTRY_BG,fg=GRAY_DARK,
+                       insertbackground=GRAY_DARK,relief="flat",width=w,
+                       highlightthickness=1,highlightcolor=SCARLET,
+                       highlightbackground=BORDER)
+            e.insert(0,default); e.pack(anchor="w",pady=(0,2))
+            self.entries[key]=e
+        tk.Frame(frame,bg=CARD_BG,height=6).pack()
 
     def _show_placeholder(self):
-        t = self.result_text
-        t.config(state="normal"); t.delete("1.0", "end")
-        t.insert("end", "\n\n")
-        t.insert("end", "  Configure assumptions on the left,\n", "sub")
-        t.insert("end", "  add comparable properties, then press\n", "sub")
-        t.insert("end", "  Run Simulation.\n\n", "sub")
-        t.insert("end", "  Three tabs will populate:\n\n", "sub")
-        for item in ["Summary  -  NPV, IRR, $/sqft, verdict",
-                     "Charts   -  Wealth growth & monthly costs",
-                     "Comps    -  Benchmark vs. comparable properties"]:
-            t.insert("end", f"   -  {item}\n", "sub")
+        t=self.result_text; t.config(state="normal"); t.delete("1.0","end")
+        t.insert("end","\n  Fill in the cards above and hit RUN SIMULATION.\n\n","sub")
+        t.insert("end","  Dashboard tab: visual verdict, charts & affordability.\n","sub")
+        t.insert("end","  Detail tab: full financial breakdown with explanations.\n","sub")
         t.config(state="disabled")
 
     def _run(self):
         try:
-            numeric_keys = [k for k in self.entries if k != "location"]
-            p = {}
-            for k in numeric_keys:
-                p[k] = float(self.entries[k].get().replace(",", ""))
-            p["location"] = self.entries["location"].get().strip()
+            nk=[k for k in self.entries if k!="location"]
+            p={k:float(self.entries[k].get().replace(",","")) for k in nk}
+            p["location"]=self.entries["location"].get().strip()
         except ValueError:
-            messagebox.showerror("Input Error", "All numeric fields must contain numbers.")
-            return
-        if p["hold_years"] < 1 or p["hold_years"] > 40:
-            messagebox.showerror("Input Error", "Holding period must be 1-40 years.")
-            return
-        if p["sqft"] <= 0:
-            messagebox.showerror("Input Error", "Square footage must be greater than 0.")
-            return
+            messagebox.showerror("Input Error","All numeric fields must be numbers."); return
+        if p["hold_years"]<1 or p["hold_years"]>40:
+            messagebox.showerror("Input Error","Hold period: 1-40 years."); return
+        if p["sqft"]<=0:
+            messagebox.showerror("Input Error","Square footage must be > 0."); return
 
-        r = run_simulation(p)
-        comps = self._get_comps()
-        comp_analysis = analyse_comps(comps, p["home_price"], p["sqft"], p["monthly_rent"])
-
-        self._display(r, p, comp_analysis, comps)
-        self._draw_charts(r, p)
-        self._draw_comps_chart(r, p, comp_analysis)
+        r=run_simulation(p)
+        self._draw_dashboard(r,p)
+        self._display_detail(r,p)
         self.notebook.select(0)
 
-    # ── Summary text ────────────────────────
-    def _display(self, r, p, comp_analysis, comps=None):
-        t = self.result_text
-        t.config(state="normal"); t.delete("1.0", "end")
+    # ── Dashboard ───────────────────────────
+    def _draw_dashboard(self,r,p):
+        for w in self.tab_dash.winfo_children(): w.destroy()
 
-        def line(text="", tag=None):
-            t.insert("end", text + "\n", tag)
-        def kv(label, value, tag=None):
-            t.insert("end", f"  {label:<34}{value}\n", tag)
+        fig=Figure(figsize=(14,5.2),dpi=100,facecolor=CHART_FACE)
+        fig.subplots_adjust(left=0.06,right=0.97,top=0.88,bottom=0.12,wspace=0.35)
 
-        sep = "-" * 56
-        winner = r["advantage"]
-        color  = "green" if winner == "BUY" else "orange"
-        loc    = p.get("location", "")
-        loc_str = f" in {loc}" if loc else ""
+        winner=r["advantage"]; wc=GREEN_OK if winner=="BUY" else "#E65100"
+
+        # ── 1. Verdict + Pie (left) ─────────
+        ax0=fig.add_subplot(1,3,1); ax0.set_facecolor(CHART_FACE)
+        ax0.axis("off")
+
+        ax0.text(0.5,0.98,f"VERDICT: {winner}",transform=ax0.transAxes,
+                 fontsize=20,fontweight="bold",color=wc,ha="center",va="top")
+        ax0.text(0.5,0.88,f"saves {fmt_usd(r['advantage_amount'])} over {r['hold_years']} yrs",
+                 transform=ax0.transAxes,fontsize=12,color=GRAY_MED,ha="center",va="top")
+
+        # Donut: buy cost breakdown
+        bp=r["buy_pie"]; labs=list(bp.keys()); sizes=list(bp.values())
+        colors=[SCARLET,"#D44","#E88",GRAY_OSU,GRAY_LIGHT]
+        if sum(sizes)>0:
+            inner_ax=fig.add_axes([0.04,0.02,0.28,0.55])
+            inner_ax.set_facecolor(CHART_FACE)
+            wedges,txts,pcts=inner_ax.pie(sizes,labels=labs,autopct="%1.0f%%",
+                colors=colors[:len(sizes)],startangle=90,pctdistance=0.78,
+                labeldistance=1.15,wedgeprops=dict(width=0.45,edgecolor=WHITE,linewidth=2),
+                textprops={"fontsize":8,"color":GRAY_DARK})
+            for t in pcts: t.set_fontsize(7); t.set_color(GRAY_MED)
+            inner_ax.set_title(f"Monthly Buy Cost: {fmt_usd(sum(sizes))}",
+                              fontsize=10,color=GRAY_DARK,pad=6)
+
+        # ── 2. Wealth over time (center) ────
+        ax1=fig.add_subplot(1,3,2); ax1.set_facecolor(WHITE)
+        months=r["months"]; hold=int(r["hold_years"])
+        ya=np.arange(0,months+1)/12
+
+        ax1.fill_between(ya,[v/1000 for v in r["equity_ts"]],alpha=0.15,color=SCARLET)
+        ax1.fill_between(ya,[v/1000 for v in r["portfolio_ts"]],alpha=0.12,color=GRAY_OSU)
+        ax1.plot(ya,[v/1000 for v in r["equity_ts"]],color=SCARLET,linewidth=2.5,label="Buy: Equity")
+        ax1.plot(ya,[v/1000 for v in r["portfolio_ts"]],color=GRAY_OSU,linewidth=2.5,label="Rent: Portfolio")
+
+        # End labels
+        bval=r["equity_ts"][-1]/1000; rval=r["portfolio_ts"][-1]/1000
+        ax1.annotate(fmt_usd(r["buyer_net_wealth"]),xy=(hold,bval),fontsize=10,
+                     color=SCARLET,fontweight="bold",xytext=(6,8),textcoords="offset points")
+        ax1.annotate(fmt_usd(r["renter_terminal"]),xy=(hold,rval),fontsize=10,
+                     color=GRAY_OSU,fontweight="bold",xytext=(6,-12),textcoords="offset points")
+
+        ax1.set_title("Wealth Over Time",fontsize=13,fontweight="bold",color=GRAY_DARK,pad=10)
+        ax1.set_xlabel("Year",fontsize=10,color=GRAY_LIGHT)
+        ax1.yaxis.set_major_formatter(FuncFormatter(usd_k))
+        ax1.legend(fontsize=9,facecolor=WHITE,edgecolor=BORDER,labelcolor=GRAY_DARK,loc="upper left")
+        ax1.tick_params(colors=GRAY_LIGHT,labelsize=9)
+        ax1.grid(True,alpha=0.15,color=GRAY_LIGHT)
+        ax1.spines["top"].set_visible(False); ax1.spines["right"].set_visible(False)
+        for sp in ["bottom","left"]: ax1.spines[sp].set_color(BORDER)
+
+        # ── 3. Monthly cost bars (right) ────
+        ax2=fig.add_subplot(1,3,3); ax2.set_facecolor(WHITE)
+        yrs=np.arange(1,hold+1); w=0.35
+        ax2.bar(yrs-w/2,r["buy_yearly"],w,color=SCARLET,alpha=0.85,label="Buy",
+                edgecolor=WHITE,linewidth=0.5)
+        ax2.bar(yrs+w/2,r["rent_yearly"],w,color=GRAY_OSU,alpha=0.85,label="Rent",
+                edgecolor=WHITE,linewidth=0.5)
+
+        # Crossover annotation
+        for i in range(len(yrs)-1):
+            if r["buy_yearly"][i]>r["rent_yearly"][i] and r["buy_yearly"][i+1]<=r["rent_yearly"][i+1]:
+                ax2.annotate("Crossover",xy=(yrs[i+1],r["rent_yearly"][i+1]),fontsize=8,
+                             color=SCARLET,fontweight="bold",xytext=(0,12),
+                             textcoords="offset points",ha="center",
+                             arrowprops=dict(arrowstyle="->",color=SCARLET,lw=1.2))
+                break
+            elif r["rent_yearly"][i]>r["buy_yearly"][i] and r["rent_yearly"][i+1]<=r["buy_yearly"][i+1]:
+                ax2.annotate("Crossover",xy=(yrs[i+1],r["buy_yearly"][i+1]),fontsize=8,
+                             color=SCARLET,fontweight="bold",xytext=(0,12),
+                             textcoords="offset points",ha="center",
+                             arrowprops=dict(arrowstyle="->",color=SCARLET,lw=1.2))
+                break
+
+        ax2.set_title("Avg Monthly Cost by Year",fontsize=13,fontweight="bold",color=GRAY_DARK,pad=10)
+        ax2.set_xlabel("Year",fontsize=10,color=GRAY_LIGHT)
+        ax2.yaxis.set_major_formatter(FuncFormatter(usd_fmt))
+        ax2.legend(fontsize=9,facecolor=WHITE,edgecolor=BORDER,labelcolor=GRAY_DARK)
+        ax2.tick_params(colors=GRAY_LIGHT,labelsize=9)
+        ax2.set_xticks(yrs)
+        ax2.grid(True,axis="y",alpha=0.15,color=GRAY_LIGHT)
+        ax2.spines["top"].set_visible(False); ax2.spines["right"].set_visible(False)
+        for sp in ["bottom","left"]: ax2.spines[sp].set_color(BORDER)
+
+        canvas=FigureCanvasTkAgg(fig,master=self.tab_dash)
+        canvas.draw(); canvas.get_tk_widget().pack(fill="both",expand=True,side="top")
+
+        # ── Affordability strip below charts ──
+        strip=tk.Frame(self.tab_dash,bg=CARD_BG,highlightthickness=1,
+                       highlightbackground=BORDER)
+        strip.pack(fill="x",padx=0,pady=(4,0))
+
+        metrics=[
+            ("Take-Home Pay",fmt_usd(r["monthly_net"])+"/mo",GRAY_DARK),
+            ("Buy Housing %",f"{r['buy_housing_pct']:.0f}% of net",
+             GREEN_OK if r["buy_housing_pct"]<35 else RED_WARN),
+            ("Buy DTI",f"{r['buy_dti']:.0f}%",GREEN_OK if r["buy_dti"]<=36 else RED_WARN),
+            ("Rent DTI",f"{r['rent_dti']:.0f}%",GREEN_OK if r["rent_dti"]<=36 else RED_WARN),
+            ("Buy Leftover",fmt_usd(r["buy_left"])+"/mo",GREEN_OK if r["buy_left"]>0 else RED_WARN),
+            ("Rent Leftover",fmt_usd(r["rent_left"])+"/mo",GREEN_OK if r["rent_left"]>0 else RED_WARN),
+            ("Emergency",f"{r['buy_ef']:.1f} months",GREEN_OK if r["buy_ef"]>=3 else RED_WARN),
+        ]
+
+        for label,val,color in metrics:
+            cell=tk.Frame(strip,bg=CARD_BG); cell.pack(side="left",expand=True,fill="both",padx=1)
+            tk.Label(cell,text=label,font=self.small_font,bg=CARD_BG,
+                     fg=GRAY_LIGHT).pack(pady=(8,0))
+            tk.Label(cell,text=val,font=tkfont.Font(family="Menlo",size=14,weight="bold"),
+                     bg=CARD_BG,fg=color).pack(pady=(2,8))
+
+    # ── Detail text ─────────────────────────
+    def _display_detail(self,r,p):
+        t=self.result_text; t.config(state="normal"); t.delete("1.0","end")
+        def line(text="",tag=None): t.insert("end",text+"\n",tag)
+        def kv(l,v,tag=None): t.insert("end",f"  {l:<34}{v}\n",tag or "kv")
+
+        sep="-"*62
+        w=r["advantage"]; c="green" if w=="BUY" else "orange"
+        loc=p.get("location",""); ls=f" in {loc}" if loc else ""
 
         line()
-        line(f"  VERDICT: {winner} wins by {fmt_usd(r['advantage_amount'])}", color)
-        line(f"     over a {r['hold_years']}-year horizon{loc_str}", "sub")
-        line(); line(sep, "sub"); line()
-
-        line("  SUBJECT PROPERTY", "header"); line()
-        if loc:
-            kv("Location", loc)
-        kv("Price",                 fmt_usd(p["home_price"]))
-        kv("Square Footage",        f"{p['sqft']:,.0f} sqft")
-        kv("Price / Sq Ft",         fmt_usd2(r["price_per_sqft"]))
-        kv("Rent / Sq Ft",          fmt_usd2(r["rent_per_sqft"]))
-        if p["monthly_rent"] > 0 and p["home_price"] > 0:
-            gr = (p["monthly_rent"] * 12) / p["home_price"] * 100
-            kv("Gross Rent Yield",   f"{gr:.2f}%")
-        line(); line(sep, "sub"); line()
-
-        line("  BUY SCENARIO", "header"); line()
-        kv("Down Payment",          fmt_usd(r["down_payment"]))
-        kv("Loan Amount",           fmt_usd(r["loan_amount"]))
-        kv("Monthly Mortgage Pmt",  fmt_usd(r["monthly_pmt"]))
+        line(f"  VERDICT: {w} wins by {fmt_usd(r['advantage_amount'])}",c)
+        line(f"     over {r['hold_years']} years{ls}","sub")
         line()
-        kv("Total Interest Paid",   fmt_usd(r["total_interest"]),  "red")
-        kv("Total Property Tax",    fmt_usd(r["total_prop_tax"]))
-        kv("Total Insurance",       fmt_usd(r["total_insurance"]))
-        kv("Total Maintenance",     fmt_usd(r["total_maint"]))
-        kv("Total Buy Outflows",    fmt_usd(r["total_buy_outflows"]), "red")
-        line()
-        kv("Future Home Value",     fmt_usd(r["future_home_value"]), "green")
-        kv("Future $/Sq Ft",        fmt_usd2(r["future_price_sqft"]))
-        kv("Remaining Mortgage",    fmt_usd(r["remaining_balance"]))
-        kv("Selling Costs",         fmt_usd(r["closing_sell_cost"]))
-        kv("Net Sale Proceeds",     fmt_usd(r["net_sale_proceeds"]),  "green")
-        line()
-        kv("NPV  (buy cash flows)", fmt_usd(r["buy_npv"]),
-           "green" if r["buy_npv"] > 0 else "red")
-        kv("IRR  (annualised)",     fmt_pct(r["buy_irr"]),
-           "green" if r["buy_irr"] and r["buy_irr"] > 0 else "red")
-        kv("Buyer Terminal Wealth", fmt_usd(r["buyer_net_wealth"]), "bold")
-        line(); line(sep, "sub"); line()
-
-        line("  RENT SCENARIO", "header"); line()
-        kv("Starting Monthly Rent",    fmt_usd(p["monthly_rent"]))
-        kv("Total Rent Paid",          fmt_usd(r["total_rent_paid"]),   "red")
-        kv("Total Rent Outflows",      fmt_usd(r["total_rent_outflows"]), "red")
-        line()
-        capital = r["down_payment"] + p["home_price"] * p["closing_buy"] / 100
-        kv("Capital Invested Instead", fmt_usd(capital))
-        kv(f"Portfolio @ {p['invest_return']:.1f}% Return",
-           fmt_usd(r["renter_terminal"]), "green")
-        line()
-        kv("NPV  (rent cash flows)",   fmt_usd(r["rent_npv"]))
-        kv("NPV  (incl. investment)",  fmt_usd(r["rent_npv_with_invest"]),
-           "green" if r["rent_npv_with_invest"] > 0 else "red")
-        kv("IRR  (invested capital)",   fmt_pct(r["rent_irr"]),
-           "green" if r["rent_irr"] and r["rent_irr"] > 0 else "red")
-        kv("Renter Terminal Wealth",    fmt_usd(r["renter_net_wealth"]), "bold")
-        line(); line(sep, "sub"); line()
-
-        line("  OPPORTUNITY COST ANALYSIS", "header"); line()
-        opp = r["renter_terminal"] - r["buyer_net_wealth"]
-        if opp > 0:
-            kv("Cost of Buying vs. Renting", fmt_usd(abs(opp)), "red")
-            line()
-            line("  By buying, you forgo investing your down payment", "sub")
-            line(f"  and monthly savings at {p['invest_return']:.1f}%. The renter's", "sub")
-            line(f"  portfolio would exceed your home equity by", "sub")
-            line(f"  {fmt_usd(abs(opp))} after {r['hold_years']} years.", "sub")
+        if w=="BUY":
+            line("  Buying and selling after "+
+                 f"{r['hold_years']} years leaves you {fmt_usd(r['advantage_amount'])}","explain")
+            line("  richer than renting and investing the difference.","explain")
         else:
-            kv("Benefit of Buying vs. Renting", fmt_usd(abs(opp)), "green")
-            line()
-            line("  Home equity growth and the mortgage interest", "sub")
-            line("  tax shield outpace what a renter could earn", "sub")
-            line(f"  investing at {p['invest_return']:.1f}% over {r['hold_years']} years.", "sub")
+            line("  Renting and investing your would-be down payment leaves","explain")
+            line(f"  you {fmt_usd(r['advantage_amount'])} richer after {r['hold_years']} years.","explain")
+        line(); line(sep,"sub"); line()
 
-        if comp_analysis:
-            ca = comp_analysis
-            line(); line(sep, "sub"); line()
-            line("  COMPARABLE PROPERTIES ANALYSIS", "header"); line()
-
-            if ca["count_price"] > 0:
-                kv("Price Comps Used",       str(ca["count_price"]))
-                kv("Comp Avg $/Sq Ft",       fmt_usd2(ca["avg_price_sqft"]))
-                kv("Subject $/Sq Ft",        fmt_usd2(ca["subj_price_sqft"]),
-                   "green" if ca["premium_discount"] < 0 else "red")
-                kv("Comp Median Price",      fmt_usd(ca["median_price"]))
-                kv("Implied Value (by sqft)",fmt_usd(ca["implied_value"]),
-                   "green" if ca["implied_value"] > p["home_price"] else "orange")
-                line()
-                if ca["premium_discount"] > 0:
-                    kv("Subject Trades At",  f"{ca['premium_discount']:.1f}% PREMIUM", "red")
-                    line("  Subject is priced above the comp average on a", "sub")
-                    line("  per-sqft basis. Negotiate or verify upgrades.", "sub")
-                else:
-                    kv("Subject Trades At",  f"{abs(ca['premium_discount']):.1f}% DISCOUNT", "green")
-                    line("  Subject is priced below the comp average on a", "sub")
-                    line("  per-sqft basis. This may indicate good value.", "sub")
-
-            if ca["count_rent"] > 0:
-                line()
-                kv("Rent Comps Used",        str(ca["count_rent"]))
-                kv("Comp Avg Rent/Sq Ft",    fmt_usd2(ca["avg_rent_sqft"]))
-                kv("Subject Rent/Sq Ft",     fmt_usd2(ca["subj_rent_sqft"]))
-            if ca["avg_cap_rate"] > 0:
-                kv("Comp Avg Cap Rate",      f"{ca['avg_cap_rate'] * 100:.2f}%")
-                kv("Subject Cap Rate",       f"{ca['subj_cap_rate'] * 100:.2f}%",
-                   "green" if ca["subj_cap_rate"] >= ca["avg_cap_rate"] else "orange")
-
-            # Per-comp detail table
-            line()
-            line("  COMP DETAIL", "orange")
-            line(f"  {'Name':<18}{'Price':>10}{'SqFt':>8}{'$/sf':>9}{'Rent':>9}", "sub")
-            line(f"  {'-'*54}", "sub")
-            for c in comps:
-                pr = fmt_usd(c['price']) if c['price'] > 0 else "-"
-                sf = f"{c['sqft']:,.0f}" if c['sqft'] > 0 else "-"
-                ps = fmt_usd2(c['price']/c['sqft']) if c['price'] > 0 and c['sqft'] > 0 else "-"
-                rn = fmt_usd(c['rent']) if c['rent'] > 0 else "-"
-                line(f"  {c['name'][:18]:<18}{pr:>10}{sf:>8}{ps:>9}{rn:>9}", "sub")
-            line(f"  {'-'*54}", "sub")
-            line(f"  {'SUBJECT':<18}{fmt_usd(p['home_price']):>10}"
-                 f"{p['sqft']:>8,.0f}{fmt_usd2(r['price_per_sqft']):>9}"
-                 f"{fmt_usd(p['monthly_rent']):>9}", "green")
-
-        line(); line(sep, "sub"); line()
-        line("  HOW TO READ THESE NUMBERS", "header"); line()
-        line("  NPV / IRR", "orange")
-        line(f"  NPV discounts cash flows at {p['discount_rate']:.1f}%. IRR is the", "sub")
-        line("  break-even return. If IRR > hurdle, value is created.", "sub")
+        line("  AFFORDABILITY CHECK","header"); line()
+        kv("Monthly Take-Home",fmt_usd(r["monthly_net"]))
+        kv("Buy: Housing/Take-Home",f"{r['buy_housing_pct']:.0f}%")
+        kv("Rent: Housing/Take-Home",f"{r['rent_housing_pct']:.0f}%")
         line()
-        line("  $/Sq Ft & Comps", "orange")
-        line("  Benchmarks your price against nearby transactions.", "sub")
-        line("  A premium means you're paying more per sqft than", "sub")
-        line("  the market average; a discount means less.", "sub")
+        gm=p["annual_salary"]/12
+        bhg=(r["avg_buy_mo"]/gm*100) if gm>0 else 0
+        kv("Buy: Housing/Gross (28% rule)",
+           f"{bhg:.0f}%  {'PASS' if bhg<=28 else 'OVER LIMIT'}",
+           "ok" if bhg<=28 else "warn")
+        kv("Buy: DTI (36% rule)",
+           f"{r['buy_dti']:.0f}%  {'PASS' if r['buy_dti']<=36 else 'OVER LIMIT'}",
+           "ok" if r["buy_dti"]<=36 else "warn")
+        kv("Rent: DTI (36% rule)",
+           f"{r['rent_dti']:.0f}%  {'PASS' if r['rent_dti']<=36 else 'OVER LIMIT'}",
+           "ok" if r["rent_dti"]<=36 else "warn")
         line()
-        line("  Cap Rate (Gross Rent Yield)", "orange")
-        line("  Annual rent / price. Higher = better income return.", "sub")
-        line("  Useful for comparing the rent-vs-own economics", "sub")
-        line("  across properties in the same market.", "sub")
-        line()
+        kv("Buy: Left Over",f"{fmt_usd(r['buy_left'])}/mo","green" if r["buy_left"]>0 else "red")
+        kv("Rent: Left Over",f"{fmt_usd(r['rent_left'])}/mo","green" if r["rent_left"]>0 else "red")
+        kv("Emergency Fund",f"{r['buy_ef']:.1f} mo of buy costs",
+           "green" if r["buy_ef"]>=3 else "red")
 
+        line(); line(sep,"sub"); line()
+        line("  BUY SCENARIO","header"); line()
+        kv("Down Payment",fmt_usd(r["down_payment"]))
+        kv("Loan Amount",fmt_usd(r["loan_amount"]))
+        kv("Monthly Payment",fmt_usd(r["monthly_pmt"]))
+        kv("Total Interest",fmt_usd(r["total_interest"]),"red")
+        kv("Total Prop Tax",fmt_usd(r["total_prop_tax"]))
+        kv("Total Insurance",fmt_usd(r["total_insurance"]))
+        kv("Total Maintenance",fmt_usd(r["total_maint"]))
+        kv("Total Outflows",fmt_usd(r["total_buy_outflows"]),"red")
+        line()
+        kv("Future Home Value",fmt_usd(r["future_home_value"]),"green")
+        kv("Future $/Sq Ft",fmt_usd2(r["future_price_sqft"]))
+        kv("Remaining Mortgage",fmt_usd(r["remaining_balance"]))
+        kv("Selling Costs",fmt_usd(r["closing_sell_cost"]))
+        kv("Net Sale Proceeds",fmt_usd(r["net_sale_proceeds"]),"green")
+        line()
+        line(f"  Sell after {r['hold_years']} years => {fmt_usd(r['net_sale_proceeds'])} cash in hand.","explain")
+        line()
+        kv("NPV",fmt_usd(r["buy_npv"]),"green" if r["buy_npv"]>0 else "red")
+        kv("IRR",fmt_pct(r["buy_irr"]),"green" if r["buy_irr"] and r["buy_irr"]>0 else "red")
+        kv("Buyer Wealth",fmt_usd(r["buyer_net_wealth"]),"bold")
+
+        line(); line(sep,"sub"); line()
+        line("  RENT SCENARIO","header"); line()
+        kv("Starting Rent",fmt_usd(p["monthly_rent"]))
+        kv("Total Rent Paid",fmt_usd(r["total_rent_paid"]),"red")
+        cap=r["down_payment"]+p["home_price"]*p["closing_buy"]/100
+        kv("Capital Invested",fmt_usd(cap))
+        kv(f"Portfolio @ {p['invest_return']:.1f}%",fmt_usd(r["renter_terminal"]),"green")
+        line()
+        line(f"  Invest {fmt_usd(cap)} instead of buying.","explain")
+        line(f"  After {r['hold_years']} years it grows to {fmt_usd(r['renter_terminal'])}.","explain")
+        line()
+        kv("NPV",fmt_usd(r["rent_npv_with_invest"]),"green" if r["rent_npv_with_invest"]>0 else "red")
+        kv("IRR",fmt_pct(r["rent_irr"]),"green" if r["rent_irr"] and r["rent_irr"]>0 else "red")
+        kv("Renter Wealth",fmt_usd(r["renter_net_wealth"]),"bold")
+
+        line(); line(sep,"sub"); line()
+        line("  OPPORTUNITY COST","header"); line()
+        opp=r["renter_terminal"]-r["buyer_net_wealth"]
+        if opp>0:
+            kv("Cost of Buying",fmt_usd(abs(opp)),"red")
+            line(f"  Buying costs you {fmt_usd(abs(opp))} in missed investment growth.","explain")
+        else:
+            kv("Benefit of Buying",fmt_usd(abs(opp)),"green")
+            line(f"  Buying puts you {fmt_usd(abs(opp))} ahead of investing.","explain")
+
+        line(); line(sep,"sub"); line()
+        line("  GLOSSARY","header"); line()
+        line("  NPV: Future money converted to today's dollars. Positive = good.","explain")
+        line(f"  IRR: Your effective annual return. Compare to {p['discount_rate']:.1f}% hurdle.","explain")
+        line("  Opportunity Cost: What you give up by choosing one path.","explain")
+        line("  28/36 Rule: Housing < 28% gross; total debt < 36% gross.","explain")
+        line("  DTI: Debt-to-income ratio (housing + debts / gross income).","explain")
+        line()
         t.config(state="disabled"); t.see("1.0")
 
-    # ── Wealth & cost charts ────────────────
-    def _draw_charts(self, r, p):
-        for w in self.chart_frame.winfo_children():
-            w.destroy()
 
-        hold   = int(r["hold_years"])
-        months = r["months"]
-
-        fig = Figure(figsize=(8, 7.5), dpi=100, facecolor=CHART_FACE)
-        fig.subplots_adjust(hspace=0.48, top=0.94, bottom=0.07, left=0.13, right=0.95)
-
-        ax1 = fig.add_subplot(2, 1, 1)
-        ax1.set_facecolor(CHART_BG)
-        year_axis = np.arange(0, months + 1) / 12
-
-        ax1.plot(year_axis, [v / 1000 for v in r["buyer_equity_ts"]],
-                 color=ACCENT, linewidth=2.2, label="Buyer: Home Equity")
-        ax1.plot(year_axis, [v / 1000 for v in r["portfolio_ts"]],
-                 color=GREEN, linewidth=2.2, label="Renter: Portfolio")
-        ax1.plot(year_axis, [v / 1000 for v in r["home_value_ts"]],
-                 color=ORANGE, linewidth=1.2, linestyle="--", alpha=0.5,
-                 label="Home Market Value")
-
-        ax1.annotate(f'{fmt_usd(r["buyer_net_wealth"])}',
-                     xy=(hold, r["buyer_equity_ts"][-1] / 1000),
-                     fontsize=9, color=ACCENT, fontweight="bold",
-                     xytext=(8, 0), textcoords="offset points", va="center")
-        ax1.annotate(f'{fmt_usd(r["renter_terminal"])}',
-                     xy=(hold, r["portfolio_ts"][-1] / 1000),
-                     fontsize=9, color=GREEN, fontweight="bold",
-                     xytext=(8, 0), textcoords="offset points", va="center")
-
-        ax1.set_title("Wealth Accumulation Over Time", color=TEXT,
-                      fontsize=13, fontweight="bold", pad=10)
-        ax1.set_xlabel("Year", color=SUBTEXT, fontsize=10)
-        ax1.set_ylabel("Value ($K)", color=SUBTEXT, fontsize=10)
-        ax1.legend(loc="upper left", fontsize=9, facecolor=CARD,
-                   edgecolor="#44446a", labelcolor=TEXT)
-        ax1.tick_params(colors=SUBTEXT, labelsize=9)
-        ax1.grid(True, alpha=0.15, color=TEXT)
-        for sp in ax1.spines.values(): sp.set_color("#44446a")
-
-        ax2 = fig.add_subplot(2, 1, 2)
-        ax2.set_facecolor(CHART_BG)
-        years = np.arange(1, hold + 1)
-        w = 0.35
-        ax2.bar(years - w / 2, r["buy_yearly_avg"],  w,
-                color=ACCENT, alpha=0.85, label="Buy: Avg Monthly Cost")
-        ax2.bar(years + w / 2, r["rent_yearly_avg"], w,
-                color=GREEN, alpha=0.85, label="Rent: Avg Monthly Cost")
-        ax2.set_title("Average Monthly Cost by Year", color=TEXT,
-                      fontsize=13, fontweight="bold", pad=10)
-        ax2.set_xlabel("Year", color=SUBTEXT, fontsize=10)
-        ax2.set_ylabel("Monthly Cost ($)", color=SUBTEXT, fontsize=10)
-        ax2.legend(loc="upper left", fontsize=9, facecolor=CARD,
-                   edgecolor="#44446a", labelcolor=TEXT)
-        ax2.tick_params(colors=SUBTEXT, labelsize=9)
-        ax2.set_xticks(years)
-        ax2.grid(True, axis="y", alpha=0.15, color=TEXT)
-        for sp in ax2.spines.values(): sp.set_color("#44446a")
-
-        canvas = FigureCanvasTkAgg(fig, master=self.chart_frame)
-        canvas.draw()
-        canvas.get_tk_widget().pack(fill="both", expand=True)
-
-    # ── Comps chart ─────────────────────────
-    def _draw_comps_chart(self, r, p, comp_analysis):
-        for w in self.comps_chart_frame.winfo_children():
-            w.destroy()
-
-        if not comp_analysis:
-            lbl = tk.Label(self.comps_chart_frame,
-                           text="\n\n  No usable comps entered.\n\n"
-                           "  Each comp needs a Name plus at least\n"
-                           "  Price + Sq Ft (for $/sqft chart) or\n"
-                           "  Rent + Price (for cap rate chart).\n\n"
-                           "  Fill in the table on the left and re-run.",
-                           font=self.label_font, bg=CHART_FACE, fg=SUBTEXT,
-                           justify="left", anchor="nw")
-            lbl.pack(fill="both", expand=True, padx=20, pady=20)
-            return
-
-        ca = comp_analysis
-        has_price_chart = ca["count_price"] > 0
-        has_cap_chart   = len(ca["cap_comps"]) > 0 and p["monthly_rent"] > 0
-        num_plots = (1 if has_price_chart else 0) + (1 if has_cap_chart else 0)
-
-        if num_plots == 0:
-            lbl = tk.Label(self.comps_chart_frame,
-                           text="\n\n  Comps found but need more data for charts.\n\n"
-                           "  For $/sqft chart: enter Price + Sq Ft\n"
-                           "  For cap rate chart: enter Rent + Price",
-                           font=self.label_font, bg=CHART_FACE, fg=SUBTEXT,
-                           justify="left", anchor="nw")
-            lbl.pack(fill="both", expand=True, padx=20, pady=20)
-            return
-
-        fig = Figure(figsize=(8, 7.5), dpi=100, facecolor=CHART_FACE)
-        fig.subplots_adjust(hspace=0.55, top=0.94, bottom=0.08, left=0.18, right=0.90)
-
-        plot_idx = 1
-
-        # ── $/sqft chart ───────────────────
-        if has_price_chart:
-            ax1 = fig.add_subplot(num_plots, 1, plot_idx); plot_idx += 1
-            ax1.set_facecolor(CHART_BG)
-
-            names = [c["name"][:20] for c in ca["price_comps"]] + ["SUBJECT"]
-            vals  = ca["prices_sqft"] + [ca["subj_price_sqft"]]
-            colors = [ACCENT] * len(ca["price_comps"])
-            colors += [GREEN if ca["premium_discount"] <= 0 else RED]
-            y_pos = np.arange(len(names))
-
-            ax1.barh(y_pos, vals, color=colors, alpha=0.85, height=0.55)
-            ax1.axvline(ca["avg_price_sqft"], color=ORANGE, linestyle="--",
-                        linewidth=1.5, alpha=0.8,
-                        label=f"Comp Avg: {fmt_usd2(ca['avg_price_sqft'])}/sqft")
-
-            for i, v in enumerate(vals):
-                ax1.text(v + max(vals) * 0.02, i, fmt_usd2(v),
-                         va="center", fontsize=9, color=TEXT)
-
-            ax1.set_yticks(y_pos)
-            ax1.set_yticklabels(names, fontsize=9)
-            ax1.set_title("Price per Square Foot Comparison", color=TEXT,
-                          fontsize=13, fontweight="bold", pad=10)
-            ax1.set_xlabel("$/Sq Ft", color=SUBTEXT, fontsize=10)
-            ax1.legend(loc="lower right", fontsize=9, facecolor=CARD,
-                       edgecolor="#44446a", labelcolor=TEXT)
-            ax1.tick_params(colors=SUBTEXT, labelsize=9)
-            ax1.grid(True, axis="x", alpha=0.15, color=TEXT)
-            for sp in ax1.spines.values(): sp.set_color("#44446a")
-
-        # ── Cap rate chart ─────────────────
-        if has_cap_chart:
-            ax2 = fig.add_subplot(num_plots, 1, plot_idx); plot_idx += 1
-            ax2.set_facecolor(CHART_BG)
-
-            cr_names  = [c["name"][:20] for c in ca["cap_comps"]] + ["SUBJECT"]
-            cr_vals   = [(c["rent"] * 12 / c["price"]) * 100 for c in ca["cap_comps"]]
-            cr_vals  += [ca["subj_cap_rate"] * 100]
-            cr_colors = [ACCENT] * len(ca["cap_comps"])
-            cr_colors += [GREEN if ca["subj_cap_rate"] >= ca["avg_cap_rate"] else ORANGE]
-            y_pos2 = np.arange(len(cr_names))
-
-            ax2.barh(y_pos2, cr_vals, color=cr_colors, alpha=0.85, height=0.55)
-            ax2.axvline(ca["avg_cap_rate"] * 100, color=ORANGE, linestyle="--",
-                        linewidth=1.5, alpha=0.8,
-                        label=f"Comp Avg: {ca['avg_cap_rate'] * 100:.2f}%")
-
-            for i, v in enumerate(cr_vals):
-                ax2.text(v + max(cr_vals) * 0.02, i, f"{v:.2f}%",
-                         va="center", fontsize=9, color=TEXT)
-
-            ax2.set_yticks(y_pos2)
-            ax2.set_yticklabels(cr_names, fontsize=9)
-            ax2.set_title("Gross Rent Yield (Cap Rate) Comparison", color=TEXT,
-                          fontsize=13, fontweight="bold", pad=10)
-            ax2.set_xlabel("Cap Rate (%)", color=SUBTEXT, fontsize=10)
-            ax2.legend(loc="lower right", fontsize=9, facecolor=CARD,
-                       edgecolor="#44446a", labelcolor=TEXT)
-            ax2.tick_params(colors=SUBTEXT, labelsize=9)
-            ax2.grid(True, axis="x", alpha=0.15, color=TEXT)
-            for sp in ax2.spines.values(): sp.set_color("#44446a")
-
-        canvas = FigureCanvasTkAgg(fig, master=self.comps_chart_frame)
-        canvas.draw()
-        canvas.get_tk_widget().pack(fill="both", expand=True)
-
-
-if __name__ == "__main__":
-    app = App()
-    app.mainloop()
+if __name__=="__main__":
+    App().mainloop()
