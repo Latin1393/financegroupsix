@@ -1,0 +1,119 @@
+# Rent vs. Buy Simulator — Setup Guide
+
+### For Mac users who have never programmed before
+
+---
+
+## What You Need
+
+- A Mac computer
+- An internet connection
+- About 10 minutes
+
+You'll install two things: **Visual Studio Code** (a text editor) and **Python** (the language the program runs on). Then you'll open the file and press play.
+
+---
+
+## Step 1: Install Visual Studio Code
+
+1. Open **Safari** (or any browser)
+2. Go to **https://code.visualstudio.com**
+3. Click the big blue **"Download for Mac"** button
+4. Open your **Downloads** folder and double-click the `.zip` file to unzip it
+5. Drag **Visual Studio Code** into your **Applications** folder
+6. Open it from Applications (if Mac asks "are you sure?", click **Open**)
+
+---
+
+## Step 2: Install Python
+
+1. Go to **https://www.python.org/downloads/**
+2. Click the big yellow **"Download Python"** button
+3. Open the downloaded `.pkg` file and follow the installer (click Continue/Agree/Install)
+4. Enter your Mac password when asked, then click **Install Software**
+5. When it says "Installation was successful", close the installer
+
+---
+
+## Step 3: Install the Python Extension in VS Code
+
+1. Open **Visual Studio Code**
+2. On the left sidebar, click the **square icon** (Extensions — it looks like four small squares)
+3. In the search bar at the top, type **Python**
+4. Click the first result by **Microsoft** (it has millions of downloads)
+5. Click the blue **Install** button
+6. Wait for it to finish
+
+---
+
+## Step 4: Install Required Libraries
+
+1. In VS Code, go to the top menu: **Terminal → New Terminal**
+2. A panel will open at the bottom of the screen — this is your Terminal
+3. Type this command exactly and press **Enter**:
+
+```
+python3 -m pip install numpy numpy-financial matplotlib
+```
+
+4. Wait for it to finish (you'll see "Successfully installed..." messages)
+
+If you see an error about permissions, try this instead:
+
+```
+python3 -m pip install --user numpy numpy-financial matplotlib
+```
+
+---
+
+## Step 5: Open the Program
+
+1. In VS Code, go to the top menu: **File → Open...**
+2. Navigate to where you saved `rent_vs_buy.py` (probably your Desktop or Downloads folder)
+3. Click the file, then click **Open**
+4. The code will appear in the editor — don't worry about reading it
+
+---
+
+## Step 6: Run It
+
+1. Click the **▶ Play button** in the top-right corner of the VS Code window
+2. If VS Code asks you to select a Python interpreter, pick the one that starts with `Python 3`
+3. The simulator window will open as a separate application
+
+**That's it! You're running the program.**
+
+---
+
+## Using the Simulator
+
+- The **top row** has input cards laid out left to right — fill in your numbers
+- Click the big red **RUN SIMULATION** button on the far right
+- **Dashboard tab** shows charts and a quick verdict
+- **Detail tab** has the full financial breakdown with explanations
+- Change any number and hit RUN again to see how it affects the result
+
+---
+
+## Troubleshooting
+
+**"command not found" when installing libraries?**
+Make sure Python installed correctly. Close VS Code, reopen it, and try the `python3 -m pip install` command again.
+
+**The play button doesn't appear?**
+Make sure you installed the Python extension (Step 3). You may need to restart VS Code.
+
+**The window looks tiny or cut off?**
+Drag the corners of the simulator window to resize it. You can also maximize it.
+
+**"No module named numpy" error?**
+The libraries didn't install into the right Python. In the VS Code terminal, run:
+
+```
+python3 -m pip install numpy numpy-financial matplotlib
+```
+
+Then try the play button again.
+
+**Mac says "Python not found"?**
+Restart VS Code after installing Python. If that doesn't work, restart your Mac.
